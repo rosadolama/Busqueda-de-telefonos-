@@ -12,6 +12,18 @@ def test_abbreviated_days_with_dash_range():
     assert extract_hours("Nuestro horario: Lun-Vie 08:00-17:00") == ["Lun-Vie 08:00-17:00"]
 
 
+def test_hour_suffix_glued_no_colon_no_space():
+    # Real-world case (clinicaslove.com): "LUNES A VIERNES 11H- 20H", all
+    # caps, no colon, "H" glued straight onto the digits.
+    assert extract_hours("LUNES A VIERNES 11H- 20H") == ["LUNES A VIERNES 11H- 20H"]
+    assert extract_hours("Horario: de 9h a 18h") == ["Horario: de 9h a 18h"]
+
+
+def test_h_suffix_does_not_glue_onto_next_word():
+    # The "h" in "hijos" must not be read as an hour-suffix.
+    assert extract_hours("Tenemos 5 hijos y 3 hijas en el equipo.") == []
+
+
 def test_todos_los_dias_variant():
     assert extract_hours("Abrimos todos los días de 9:00 a 18:00.") == ["todos los días de 9:00 a 18:00"]
 

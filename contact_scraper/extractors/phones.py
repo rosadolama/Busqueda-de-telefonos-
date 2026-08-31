@@ -17,6 +17,12 @@ from contact_scraper.geo_hints import DEFAULT_REGION_GUESSES, guess_country_from
 
 _TEL_HREF_RE = re.compile(r"^tel:", re.IGNORECASE)
 
+# wa.me/<digits> and api.whatsapp.com/send?phone=<digits> encode the number
+# in E.164 digits with no leading "+". Very common on small-business sites
+# that only put a WhatsApp click-to-chat button on the page, no tel: link
+# or plain-text number at all.
+_WHATSAPP_RE = re.compile(r"(?:wa\.me/|whatsapp\.com/send\?phone=)(\d[\d\s\-]{5,})", re.IGNORECASE)
+
 
 def _from_tel_links(soup: BeautifulSoup) -> List[str]:
     numbers = []
@@ -24,6 +30,15 @@ def _from_tel_links(soup: BeautifulSoup) -> List[str]:
         raw = unquote(a["href"].split(":", 1)[1])
         raw = raw.split("?")[0].strip()
         numbers.append(raw)
+    return numbers
+
+
+def _from_whatsapp_links(soup: BeautifulSoup) -> List[str]:
+    numbers = []
+    for a in soup.find_all("a", href=True):
+        match = _WHATSAPP_RE.search(unquote(a["href"]))
+        if match:
+            numbers.append("+" + match.group(1))
     return numbers
 
 
@@ -56,7 +71,7 @@ def extract_phones(text: str, html: Optional[str] = None, source_url: Optional[s
 
     if html:
         soup = BeautifulSoup(html, "lxml")
-        for raw in _from_tel_links(soup):
+        for raw in _from_tel_links(soup) + _from_whatsapp_links(soup):
             formatted = _valid_e164(raw, regions)
             if formatted and formatted not in found:
                 found.append(formatted)

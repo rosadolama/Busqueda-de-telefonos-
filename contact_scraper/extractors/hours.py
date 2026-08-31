@@ -15,9 +15,11 @@ _DAY_WORDS = (
     r"|lun\.?|mar\.?|mi[eé]\.?|jue\.?|vie\.?|s[aá]b\.?|dom\.?"
     r"|todos los d[ií]as|diariamente|d[ií]as h[aá]biles"
 )
-_TIME = r"\d{1,2}(?::\d{2})?\s?(?:[ap]\.?\s?m\.?)?"
+# "(?!\w)" stops a bare "h" from gluing onto the next word, e.g. the
+# "h" in "5 hijos" is not the hour-suffix "h" in "11h" / "20H".
+_TIME = r"\d{1,2}(?::\d{2})?\s?(?:h(?:rs?|oras?)?(?!\w)\.?|[ap]\.?\s?m\.?)?"
 _RANGE_SEP = r"(?:a|hasta|-|–|—)"
-_TIME_RANGE = rf"{_TIME}\s*{_RANGE_SEP}\s*{_TIME}(?:\s*h(?:rs?|oras?)\.?)?"
+_TIME_RANGE = rf"{_TIME}\s*{_RANGE_SEP}\s*{_TIME}"
 
 # A "hours line": one or more day mentions (optionally joined by commas/"y"/ranges
 # like "Lunes a Viernes"), followed somewhere after by a time range.

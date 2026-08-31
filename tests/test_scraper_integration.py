@@ -50,6 +50,23 @@ def test_full_pipeline_merges_structured_and_text_data():
     assert info.warnings == []
 
 
+def test_falls_back_to_www_variant_when_bare_domain_fails():
+    # Mirrors a real case (factoriaderesultados.com): the bare domain fails
+    # (SSL error, DNS, whatever) but "www." works fine.
+    def fetch_only_www(url, session=None, timeout=15, respect_robots=True):
+        if url == "https://panaderiacentral.com":
+            return fetcher.FetchResult(url=url, status_code=None, html=None, error="ssl error")
+        if url == "https://www.panaderiacentral.com":
+            return fetcher.FetchResult(url=url, status_code=200, html=HOME_HTML)
+        return fetcher.FetchResult(url=url, status_code=404, html=None, error="not found")
+
+    with patch("contact_scraper.scraper.fetcher.fetch", side_effect=fetch_only_www):
+        info = scrape("https://panaderiacentral.com", delay=0, max_pages=1)
+
+    assert info.phones == ["+57 300 1112222"]
+    assert any("www.panaderiacentral.com" in w for w in info.warnings)
+
+
 def test_homepage_fetch_failure_is_reported_not_raised():
     def failing_fetch(url, session=None, timeout=15, respect_robots=True):
         return fetcher.FetchResult(url=url, status_code=None, html=None, error="timeout")

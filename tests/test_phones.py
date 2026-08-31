@@ -31,6 +31,16 @@ def test_no_false_positive_on_plain_numbers():
     assert extract_phones(text) == []
 
 
+def test_finds_whatsapp_wa_me_link():
+    html = '<a href="https://wa.me/34699145887?text=Hola">WhatsApp</a>'
+    assert extract_phones("", html=html) == ["+34 699 14 58 87"]
+
+
+def test_finds_whatsapp_api_send_link():
+    html = '<a href="https://api.whatsapp.com/send?phone=34699145887">Escribir</a>'
+    assert extract_phones("", html=html) == ["+34 699 14 58 87"]
+
+
 def test_canonicalize_matches_extract_phones_formatting():
     formatted = canonicalize("+57 300 111 2222")
     assert formatted == "+57 300 1112222"

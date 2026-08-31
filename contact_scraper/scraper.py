@@ -39,6 +39,13 @@ def _normalize_url(url: str) -> str:
     return url
 
 
+def _toggle_www(url: str) -> str:
+    """example.com <-> www.example.com, keeping scheme/path/query intact."""
+    parsed = urlparse(url)
+    host = parsed.netloc[4:] if parsed.netloc.lower().startswith("www.") else "www." + parsed.netloc
+    return parsed._replace(netloc=host).geturl()
+
+
 def _visible_text(html: str) -> str:
     soup = BeautifulSoup(html, "lxml")
     for tag in soup(["script", "style", "noscript", "svg"]):
@@ -64,8 +71,17 @@ def _gather_pages(
     """Fetch the homepage plus up to (max_pages - 1) likely contact pages."""
     home = fetcher.fetch(url, session=session, timeout=timeout, respect_robots=respect_robots)
     if not home.ok:
-        warnings.append(f"no se pudo obtener la página principal ({url}): {home.error}")
-        return [], None
+        # Apex vs "www." is a common real-world split: many small sites only
+        # have a valid TLS cert / DNS record for one of the two, so a plain
+        # failure on one is worth one retry on the other before giving up.
+        alt_url = _toggle_www(url)
+        alt_home = fetcher.fetch(alt_url, session=session, timeout=timeout, respect_robots=respect_robots)
+        if alt_home.ok:
+            warnings.append(f"{url} no respondió ({home.error}); se usó {alt_url}")
+            home = alt_home
+        else:
+            warnings.append(f"no se pudo obtener la página principal ({url}): {home.error}")
+            return [], None
 
     pages = [(home.url, home.html)]
     contact_url: Optional[str] = None
