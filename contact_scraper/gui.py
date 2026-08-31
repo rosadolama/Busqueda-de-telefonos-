@@ -16,6 +16,7 @@ import queue
 import threading
 import traceback
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 from typing import List, Optional
 
@@ -25,6 +26,23 @@ from contact_scraper.scraper import scrape
 from contact_scraper.url_sources import read_urls_from_file
 
 APP_TITLE = "Búsqueda de Teléfonos"
+APP_SUBTITLE = "Extracción de datos de contacto"
+
+# A restrained navy/gray palette rather than anything colorful, and a native
+# Windows UI font where it's available -- the two things that read as
+# "corporate app" instead of "default Tk gray box".
+_INK = "#132238"          # header background, primary text
+_INK_LIGHT = "#24405f"    # header bottom border / hover
+_ACCENT = "#2f6fb3"       # primary action (Buscar)
+_ACCENT_HOVER = "#255a92"
+_DANGER = "#b3492f"       # Detener, only meaningful once a batch is running
+_DANGER_HOVER = "#92401f"
+_BG = "#eef1f5"           # window background
+_SURFACE = "#ffffff"      # panels, table
+_BORDER = "#d3dae3"
+_TEXT = "#1c2530"
+_MUTED = "#6b7684"
+_ROW_ALT = "#f4f7fb"      # zebra stripe
 
 _COLUMNS = [
     ("source_url", "URL", 200),
@@ -39,11 +57,22 @@ _COLUMNS = [
 ]
 
 
+def _pick_font(root: tk.Misc, *candidates: str) -> str:
+    """First installed font from `candidates`, else Tk's own default."""
+    available = set(tkfont.families(root))
+    for name in candidates:
+        if name in available:
+            return name
+    return tkfont.nametofont("TkDefaultFont").actual("family")
+
+
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("1150x620")
+        self.root.geometry("1180x640")
+        self.root.minsize(820, 460)
+        self.root.configure(bg=_BG)
         self.root.report_callback_exception = self._on_tk_error
 
         self.csv_path: Optional[str] = None
@@ -52,42 +81,123 @@ class App:
         self.stop_requested = False
         self.event_queue: "queue.Queue" = queue.Queue()
 
+        self.font_family = _pick_font(root, "Segoe UI", "Helvetica Neue", "Helvetica", "Arial")
+        self._setup_style()
         self._build_widgets()
         self.root.after(100, self._poll_queue)
+
+    # -- look & feel ------------------------------------------------------
+
+    def _setup_style(self) -> None:
+        style = ttk.Style(self.root)
+        # "clam" is the theme ttk can actually recolor consistently; the
+        # native Windows theme ignores most background/foreground overrides.
+        style.theme_use("clam")
+
+        base_font = (self.font_family, 10)
+        style.configure(".", font=base_font, background=_BG, foreground=_TEXT)
+
+        style.configure("Toolbar.TFrame", background=_SURFACE)
+        style.configure("Header.TFrame", background=_INK)
+        style.configure(
+            "Header.TLabel", background=_INK, foreground="#ffffff",
+            font=(self.font_family, 15, "bold"),
+        )
+        style.configure(
+            "Subheader.TLabel", background=_INK, foreground="#b7c6da",
+            font=(self.font_family, 9),
+        )
+        style.configure("Status.TFrame", background=_SURFACE)
+        style.configure("Status.TLabel", background=_SURFACE, foreground=_MUTED, font=base_font)
+        style.configure("Path.TLabel", background=_SURFACE, foreground=_MUTED, font=(self.font_family, 9))
+
+        style.configure(
+            "Primary.TButton", font=(self.font_family, 10, "bold"),
+            background=_ACCENT, foreground="#ffffff", borderwidth=0, padding=(14, 7),
+        )
+        style.map("Primary.TButton",
+                  background=[("disabled", "#a7bcd4"), ("active", _ACCENT_HOVER)],
+                  foreground=[("disabled", "#eef1f5")])
+
+        style.configure(
+            "Secondary.TButton", font=base_font,
+            background=_SURFACE, foreground=_TEXT, borderwidth=1, padding=(12, 6),
+        )
+        style.map("Secondary.TButton",
+                  background=[("disabled", _SURFACE), ("active", _ROW_ALT)],
+                  foreground=[("disabled", _MUTED)],
+                  bordercolor=[("!disabled", _BORDER)])
+
+        style.configure(
+            "Danger.TButton", font=(self.font_family, 10, "bold"),
+            background=_DANGER, foreground="#ffffff", borderwidth=0, padding=(12, 6),
+        )
+        style.map("Danger.TButton",
+                  background=[("disabled", "#d9b8ae"), ("active", _DANGER_HOVER)],
+                  foreground=[("disabled", "#f7ece9")])
+
+        style.configure(
+            "Corporate.Horizontal.TProgressbar",
+            background=_ACCENT, troughcolor=_ROW_ALT, borderwidth=0, thickness=8,
+        )
+
+        style.configure(
+            "Treeview", background=_SURFACE, fieldbackground=_SURFACE, foreground=_TEXT,
+            rowheight=26, borderwidth=0,
+        )
+        style.configure(
+            "Treeview.Heading", background=_INK, foreground="#ffffff",
+            font=(self.font_family, 9, "bold"), relief="flat", padding=(6, 6),
+        )
+        style.map("Treeview.Heading", background=[("active", _INK_LIGHT)])
+        style.map("Treeview", background=[("selected", _ACCENT)], foreground=[("selected", "#ffffff")])
 
     # -- UI construction -----------------------------------------------
 
     def _build_widgets(self) -> None:
-        toolbar = tk.Frame(self.root)
-        toolbar.pack(fill="x", padx=8, pady=8)
+        header = ttk.Frame(self.root, style="Header.TFrame")
+        header.pack(fill="x")
+        inner = ttk.Frame(header, style="Header.TFrame")
+        inner.pack(fill="x", padx=18, pady=(14, 12))
+        ttk.Label(inner, text=APP_TITLE, style="Header.TLabel").pack(anchor="w")
+        ttk.Label(inner, text=APP_SUBTITLE, style="Subheader.TLabel").pack(anchor="w")
 
-        self.path_label = tk.Label(toolbar, text="Ningún archivo seleccionado", anchor="w", fg="#555")
-        self.path_label.pack(side="left", fill="x", expand=True)
+        body = tk.Frame(self.root, bg=_BG)
+        body.pack(fill="both", expand=True, padx=18, pady=14)
 
-        tk.Button(toolbar, text="Seleccionar CSV...", command=self._choose_csv).pack(side="left", padx=4)
-        self.start_button = tk.Button(toolbar, text="Buscar", command=self._start, state="disabled")
-        self.start_button.pack(side="left", padx=4)
-        self.stop_button = tk.Button(toolbar, text="Detener", command=self._stop, state="disabled")
-        self.stop_button.pack(side="left", padx=4)
-        self.save_button = tk.Button(toolbar, text="Guardar CSV...", command=self._save_csv, state="disabled")
-        self.save_button.pack(side="left", padx=4)
+        toolbar = ttk.Frame(body, style="Toolbar.TFrame", padding=12)
+        toolbar.pack(fill="x")
 
-        status_frame = tk.Frame(self.root)
-        status_frame.pack(fill="x", padx=8)
+        row1 = ttk.Frame(toolbar, style="Toolbar.TFrame")
+        row1.pack(fill="x")
+        ttk.Button(row1, text="Seleccionar CSV...", style="Secondary.TButton", command=self._choose_csv).pack(side="left")
+        self.start_button = ttk.Button(row1, text="Buscar", style="Primary.TButton", command=self._start, state="disabled")
+        self.start_button.pack(side="left", padx=(8, 0))
+        self.stop_button = ttk.Button(row1, text="Detener", style="Danger.TButton", command=self._stop, state="disabled")
+        self.stop_button.pack(side="left", padx=(8, 0))
+        self.save_button = ttk.Button(row1, text="Guardar CSV...", style="Secondary.TButton", command=self._save_csv, state="disabled")
+        self.save_button.pack(side="left", padx=(8, 0))
+
+        self.path_label = ttk.Label(toolbar, text="Ningún archivo seleccionado", style="Path.TLabel")
+        self.path_label.pack(fill="x", anchor="w", pady=(10, 0))
+
+        status_frame = ttk.Frame(body, style="Status.TFrame", padding=(12, 10))
+        status_frame.pack(fill="x", pady=(10, 0))
         self.status_var = tk.StringVar(value="Selecciona un CSV con las URLs para empezar.")
-        tk.Label(status_frame, textvariable=self.status_var, anchor="w").pack(fill="x")
+        ttk.Label(status_frame, textvariable=self.status_var, style="Status.TLabel").pack(fill="x", anchor="w")
+        self.progress = ttk.Progressbar(status_frame, mode="determinate", style="Corporate.Horizontal.TProgressbar")
+        self.progress.pack(fill="x", pady=(8, 0))
 
-        self.progress = ttk.Progressbar(self.root, mode="determinate")
-        self.progress.pack(fill="x", padx=8, pady=(4, 8))
-
-        tree_frame = tk.Frame(self.root)
-        tree_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        tree_frame = tk.Frame(body, bg=_BORDER, highlightthickness=0)
+        tree_frame.pack(fill="both", expand=True, pady=(12, 0))
 
         columns = [key for key, _label, _width in _COLUMNS]
         self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings")
         for key, label, width in _COLUMNS:
             self.tree.heading(key, text=label)
             self.tree.column(key, width=width, anchor="w")
+        self.tree.tag_configure("odd", background=_ROW_ALT)
+        self.tree.tag_configure("even", background=_SURFACE)
 
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
@@ -95,7 +205,7 @@ class App:
 
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
-        self.tree.grid(row=0, column=0, sticky="nsew")
+        self.tree.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
 
@@ -208,7 +318,8 @@ class App:
     def _add_row(self, info: ContactInfo) -> None:
         row = result_to_csv_row(info)
         values = [row[key] for key, _label, _width in _COLUMNS]
-        self.tree.insert("", "end", values=values)
+        tag = "odd" if len(self.tree.get_children()) % 2 else "even"
+        self.tree.insert("", "end", values=values, tags=(tag,))
 
     # -- safety net ---------------------------------------------------------
 
