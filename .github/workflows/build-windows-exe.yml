@@ -46,7 +46,11 @@ jobs:
           # analysis cannot see -- without --collect-submodules those 300+
           # files are silently left out and phone parsing breaks region by
           # region in the packaged app despite working fine when run from source.
-          pyinstaller --onefile --name BusquedaDeTelefonos \
+          # --windowed: no console window. Confirmed the app launches fine
+          # on real Windows (run without it first to be able to see a
+          # startup error if there'd been one), so the console is no longer
+          # needed and was the one thing left looking unpolished.
+          pyinstaller --onefile --windowed --name BusquedaDeTelefonos \
             --collect-submodules phonenumbers.data \
             --add-data "$DATA_DIR/cities15000.json;geonamescache/data" \
             run_gui.py
