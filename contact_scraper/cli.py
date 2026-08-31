@@ -4,32 +4,19 @@ Usage:
     python -m contact_scraper https://example.com
     python -m contact_scraper https://a.com https://b.com --json
     python -m contact_scraper --input urls.txt --output resultados.csv
+    python -m contact_scraper --input urls.csv --output resultados.csv
 """
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import sys
 from typing import List, TextIO
 
 from contact_scraper.models import ContactInfo
+from contact_scraper.results_io import write_csv
 from contact_scraper.scraper import DEFAULT_DELAY, DEFAULT_MAX_PAGES, DEFAULT_TIMEOUT, scrape
-
-CSV_FIELDS = [
-    "source_url", "contact_page_url", "team_page_url", "names", "phones",
-    "hours", "city", "country", "address_raw", "warnings",
-]
-
-
-def _read_url_file(path: str) -> List[str]:
-    urls = []
-    with open(path, "r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                urls.append(line)
-    return urls
+from contact_scraper.url_sources import read_urls_from_file
 
 
 def _print_human(info: ContactInfo, out: TextIO) -> None:
@@ -50,35 +37,13 @@ def _print_human(info: ContactInfo, out: TextIO) -> None:
             print(f"  - {w}", file=out)
 
 
-def _write_csv(results: List[ContactInfo], path: str) -> None:
-    with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        for info in results:
-            row = info.to_dict()
-            writer.writerow(
-                {
-                    "source_url": row["source_url"],
-                    "contact_page_url": row["contact_page_url"] or "",
-                    "team_page_url": row["team_page_url"] or "",
-                    "names": "; ".join(row["names"]),
-                    "phones": "; ".join(row["phones"]),
-                    "hours": row["hours"] or "",
-                    "city": row["city"] or "",
-                    "country": row["country"] or "",
-                    "address_raw": row["address_raw"] or "",
-                    "warnings": " | ".join(row["warnings"]),
-                }
-            )
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="contact_scraper",
         description="Busca la página de contacto de un sitio y extrae nombres, teléfonos, horario y ciudad.",
     )
     parser.add_argument("urls", nargs="*", help="una o más URLs a analizar")
-    parser.add_argument("--input", metavar="FILE", help="archivo con una URL por línea")
+    parser.add_argument("--input", metavar="FILE", help="archivo .txt (una URL por línea) o .csv con las URLs")
     parser.add_argument("--output", metavar="FILE.csv", help="guarda los resultados en un CSV en vez de imprimirlos")
     parser.add_argument("--json", action="store_true", help="imprime los resultados como JSON")
     parser.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES, help="máximo de páginas a visitar por sitio (default: %(default)s)")
@@ -96,10 +61,10 @@ def main(argv: List[str] = None) -> int:
 
     urls = list(args.urls)
     if args.input:
-        urls.extend(_read_url_file(args.input))
+        urls.extend(read_urls_from_file(args.input))
 
     if not urls:
-        parser.error("no se proporcionó ninguna URL (usa un argumento o --input archivo.txt)")
+        parser.error("no se proporcionó ninguna URL (usa un argumento o --input archivo.txt/.csv)")
 
     results: List[ContactInfo] = []
     for i, url in enumerate(urls):
@@ -119,7 +84,7 @@ def main(argv: List[str] = None) -> int:
         results.append(info)
 
     if args.output:
-        _write_csv(results, args.output)
+        write_csv(results, args.output)
         if args.verbose:
             print(f"Resultados guardados en {args.output}", file=sys.stderr)
         return 0

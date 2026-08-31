@@ -1,0 +1,61 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - claude/contact-scraper-bot-05z6g6
+    paths:
+      - "contact_scraper/**"
+      - "run_gui.py"
+      - "requirements.txt"
+      - ".github/workflows/build-windows-exe.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Sanity-check the app imports before spending time packaging it
+        run: python -c "import contact_scraper.gui"
+
+      - name: Build EXE with PyInstaller
+        shell: bash
+        run: |
+          set -e
+          # geonamescache ships several city-data JSON files (up to ~80 MB);
+          # we only ever call get_cities() with the default population
+          # threshold, which reads exactly this one file, so only bundle it.
+          DATA_DIR=$(python -c "import geonamescache, os; print(os.path.join(os.path.dirname(geonamescache.__file__), 'data'))")
+
+          # phonenumbers loads its per-region metadata (phonenumbers/data/region_XX.py)
+          # via a dynamically-built import path, which PyInstaller's static
+          # analysis cannot see -- without --collect-submodules those 300+
+          # files are silently left out and phone parsing breaks region by
+          # region in the packaged app despite working fine when run from source.
+          pyinstaller --onefile --name BusquedaDeTelefonos \
+            --collect-submodules phonenumbers.data \
+            --add-data "$DATA_DIR/cities15000.json;geonamescache/data" \
+            run_gui.py
+
+          ls -lh dist/
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BusquedaDeTelefonos-windows
+          path: dist/BusquedaDeTelefonos.exe
+          if-no-files-found: error

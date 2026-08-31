@@ -70,6 +70,69 @@ de `--output` para imprimir un arreglo JSON por stdout.
 | `--use-spacy` | Si tienes `spacy` y su modelo en español instalados, los usa para mejorar la detección de nombres. |
 | `--verbose` | Muestra progreso en stderr (útil en modo por lotes). |
 
+## Aplicación de escritorio (Windows, .exe)
+
+Para no depender de la terminal, hay una app con ventana: eliges un CSV con
+las URLs, le das clic a "Buscar", y ves los resultados en una tabla con
+botón para exportarlos a CSV.
+
+### Descargar el .exe ya compilado
+
+Cada vez que se sube código a la rama `claude/contact-scraper-bot-05z6g6`,
+GitHub compila automáticamente el `.exe` (no hace falta tener Python ni nada
+instalado). Para descargarlo:
+
+1. Entra a la pestaña **Actions** del repositorio en GitHub.
+2. Abre la ejecución más reciente de "Build Windows EXE" (ícono verde ✅).
+3. En la sección **Artifacts**, descarga `BusquedaDeTelefonos-windows` (es
+   un .zip; adentro está `BusquedaDeTelefonos.exe`).
+4. Descomprime y haz doble clic en `BusquedaDeTelefonos.exe`.
+
+Si no ves ninguna ejecución en Actions, entra a esa pestaña, elige el
+workflow "Build Windows EXE" en la barra lateral y usa el botón **Run
+workflow** para lanzarla manualmente.
+
+**Nota de esta primera versión:** el `.exe` abre, además de la ventana de la
+app, una consola negra detrás. Es intencional por ahora — si algo falla al
+abrir la aplicación, esa consola muestra el error para poder diagnosticarlo.
+Una vez confirmemos que abre bien en Windows real, puedo quitarla para que
+quede solo la ventana de la app.
+
+### Cómo se usa
+
+1. Clic en **"Seleccionar CSV..."** y elige un archivo con las URLs. Acepta
+   un CSV con columna `url` (o `sitio web`, `web`, `dominio`...) en
+   cualquier posición, o simplemente una URL por fila sin encabezado.
+2. Clic en **"Buscar"**. La barra de progreso y el estado muestran qué sitio
+   se está procesando; cada resultado aparece en la tabla apenas termina.
+3. **"Detener"** corta el lote después del sitio que esté en curso (lo ya
+   procesado no se pierde).
+4. **"Guardar CSV..."** exporta todo lo que esté en la tabla en ese momento,
+   con las mismas columnas que el modo por lotes de la terminal.
+
+### Ejecutarla desde el código fuente (sin el .exe)
+
+```bash
+python run_gui.py
+```
+
+(En Linux hace falta el paquete del sistema `python3-tk` si no lo tienes:
+`sudo apt install python3-tk`. En Windows y Mac ya viene incluido con
+Python.)
+
+### Compilar el .exe tú mismo (alternativa a GitHub Actions)
+
+Si prefieres generarlo en tu propia PC con Windows:
+
+```bash
+pip install -r requirements.txt pyinstaller
+pyinstaller --onefile --name BusquedaDeTelefonos --collect-submodules phonenumbers.data run_gui.py
+```
+
+El `.exe` queda en `dist/BusquedaDeTelefonos.exe`. (El `--collect-submodules`
+es necesario porque `phonenumbers` carga sus datos de cada país de forma
+dinámica, y PyInstaller no los detecta solo.)
+
 ## Cómo funciona
 
 1. **`fetcher.py`** descarga la página con un User-Agent identificable,
@@ -102,6 +165,10 @@ de `--output` para imprimir un arreglo JSON por stdout.
    fuente prioritaria, y reintenta con/sin "www." si el dominio principal
    falla (certificados o DNS mal configurados en uno de los dos son comunes
    en sitios pequeños).
+6. **`url_sources.py`** y **`results_io.py`** son la lectura de URLs
+   (.txt/.csv) y la escritura de resultados a CSV, compartidas entre la
+   terminal (`cli.py`) y la app de escritorio (`gui.py`), para que ambas se
+   comporten igual.
 
 ## Limitaciones (por diseño)
 
