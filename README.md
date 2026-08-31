@@ -35,6 +35,7 @@ python -m contact_scraper https://ejemplo.com
 ```
 URL:              https://ejemplo.com
 Página de contacto: https://ejemplo.com/contacto
+Página de equipo: https://ejemplo.com/nosotros
 Nombres:          Rosa Elena Martínez del Campo
 Teléfonos:        +57 300 1112222
 Horario:          Lunes a Viernes: 08:00–18:00
@@ -52,8 +53,8 @@ python -m contact_scraper --input urls.txt --output resultados.csv
 
 `urls.txt` lleva una URL por línea (las líneas vacías o que empiezan con `#`
 se ignoran). El CSV resultante tiene las columnas: `source_url,
-contact_page_url, names, phones, hours, city, country, address_raw,
-warnings` (las listas van separadas por `; `).
+contact_page_url, team_page_url, names, phones, hours, city, country,
+address_raw, warnings` (las listas van separadas por `; `).
 
 También puedes combinar URLs directas con `--input`, y usar `--json` en vez
 de `--output` para imprimir un arreglo JSON por stdout.
@@ -62,7 +63,7 @@ de `--output` para imprimir un arreglo JSON por stdout.
 
 | Opción | Qué hace |
 |---|---|
-| `--max-pages N` | Máximo de páginas a visitar por sitio (por defecto 3: la principal + hasta 2 páginas de contacto candidatas). |
+| `--max-pages N` | Máximo de páginas a visitar por sitio (por defecto 4: la principal + página de contacto + página de equipo/sobre nosotros + 1 de margen). |
 | `--timeout N` | Timeout por solicitud HTTP, en segundos. |
 | `--delay N` | Pausa entre solicitudes al mismo sitio, en segundos (cortesía con el servidor). |
 | `--ignore-robots` | Ignora `robots.txt`. Solo si tienes autorización explícita del sitio. |
@@ -75,31 +76,44 @@ de `--output` para imprimir un arreglo JSON por stdout.
    respeta `robots.txt` por defecto, y limita el tamaño de la respuesta.
 2. **`contact_page_finder.py`** busca en la página principal enlaces cuyo
    texto o URL sugieran una página de contacto ("Contáctenos", "Contact us",
-   etc.); si no encuentra ninguno, prueba rutas comunes (`/contacto`,
-   `/contact-us`, ...).
+   etc.) **y, por separado, una página "Sobre Nosotros"/"Quiénes somos"/
+   "Equipo"** — los nombres de personas casi nunca están en la página de
+   contacto, viven en la de equipo. Si no encuentra un enlace de alguna de
+   las dos, prueba rutas comunes (`/contacto`, `/nosotros`, `/equipo`, ...).
+   Un enlace real siempre tiene prioridad sobre adivinar rutas.
 3. **`structured_data.py`** extrae JSON-LD y microdatos schema.org
    (teléfono, dirección, horario, nombre de empleados/fundadores) cuando el
-   sitio los publica.
+   sitio los publica. Esto incluye limpiar nombres que el propio sitio
+   publica sin cuidado (con el cargo pegado o emojis de banderas incluidos).
 4. **`extractors/`** cubre lo que los datos estructurados no dan:
    - `phones.py` usa la librería `phonenumbers` (el mismo motor que usa
      Android/Chrome) para validar y formatear números, en vez de un regex
      ingenuo que confundiría fechas o números de factura con teléfonos.
+     También lee números de botones de WhatsApp (`wa.me/...`).
    - `hours.py` busca patrones de día + rango horario en español.
    - `city.py` compara el texto contra un gazetteer de ciudades reales
      (`geonamescache`, sin llamadas de red) y prioriza por coincidencia de
      país y población.
    - `names.py` solo reporta un nombre cuando hay una señal explícita
-     ("Lic.", "Sr.", "Contacto:", "Atiende:", etc.), nunca adivina a partir
-     de cualquier frase en mayúsculas.
+     ("Lic.", "Sr.", "Contacto:", "Atiende:", etc., en mayúscula/minúscula
+     normal o TODO EN MAYÚSCULAS), nunca adivina a partir de cualquier
+     frase capitalizada sin ese contexto.
 5. **`scraper.py`** combina todo lo anterior con datos estructurados como
-   fuente prioritaria.
+   fuente prioritaria, y reintenta con/sin "www." si el dominio principal
+   falla (certificados o DNS mal configurados en uno de los dos son comunes
+   en sitios pequeños).
 
 ## Limitaciones (por diseño)
 
-- **Nombres**: la mayoría de páginas de contacto solo listan datos de la
-  empresa, no de una persona. Es normal y esperado que `names` quede vacío.
-  No se usa NLP pesado por defecto; `--use-spacy` es opcional para mejorar
-  el recall si ya tienes `spacy` instalado.
+- **Nombres**: solo se reportan cuando hay una señal explícita (honorífico
+  o etiqueta tipo "Contacto:") justo antes del nombre — funciona bien para
+  equipos médicos/profesionales (que casi siempre usan "Dr."/"Dra."), pero
+  un nombre suelto en una tarjeta de equipo sin título ni etiqueta (solo
+  seguido de un cargo como "CEO" o "Trafficker Digital") no se captura; es
+  una decisión deliberada para no arriesgar falsos positivos con títulos de
+  sección o nombres de tratamientos. No se usa NLP pesado por defecto;
+  `--use-spacy` es opcional para mejorar el recall si ya tienes `spacy`
+  instalado.
 - **Ciudad**: es una inferencia ("ciudad probable"), no un hecho verificado.
   Se prioriza la ciudad que el sitio declara explícitamente
   (`addressLocality`); en texto libre puede haber ambigüedad cuando se

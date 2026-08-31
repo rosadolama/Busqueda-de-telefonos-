@@ -22,7 +22,7 @@ from contact_scraper.extractors import phones as phones_extractor
 from contact_scraper.geo_hints import guess_country_from_url
 from contact_scraper.models import ContactInfo
 
-DEFAULT_MAX_PAGES = 3
+DEFAULT_MAX_PAGES = 4
 DEFAULT_TIMEOUT = 15
 DEFAULT_DELAY = 1.0
 
@@ -59,6 +59,56 @@ def _dedup_extend(target: List[str], items: List[str]) -> None:
             target.append(item)
 
 
+def _try_candidates(
+    candidates: List[str],
+    session: requests.Session,
+    timeout: int,
+    delay: float,
+    respect_robots: bool,
+    budget: int,
+    pages: List[Tuple[str, str]],
+    warnings: List[str],
+) -> Tuple[Optional[str], int]:
+    """Try known candidate URLs (real links found on the homepage) in order,
+    stopping at the first that loads."""
+    for candidate in candidates:
+        if budget <= 0:
+            return None, budget
+        time.sleep(delay)
+        result = fetcher.fetch(candidate, session=session, timeout=timeout, respect_robots=respect_robots)
+        budget -= 1
+        if result.ok:
+            pages.append((result.url, result.html))
+            return result.url, budget
+        warnings.append(f"no se pudo obtener {candidate}: {result.error}")
+    return None, budget
+
+
+def _try_guesses(
+    guess_paths_fn,
+    home_url: str,
+    session: requests.Session,
+    timeout: int,
+    delay: float,
+    respect_robots: bool,
+    budget: int,
+    pages: List[Tuple[str, str]],
+) -> Tuple[Optional[str], int]:
+    """Blindly try common paths, stopping at the first that loads. Lower
+    confidence than a real link, so this only runs when the homepage had no
+    matching link at all -- see the ordering note in _gather_pages."""
+    for guess in guess_paths_fn(home_url):
+        if budget <= 0:
+            break
+        time.sleep(delay)
+        result = fetcher.fetch(guess, session=session, timeout=timeout, respect_robots=respect_robots)
+        budget -= 1
+        if result.ok:
+            pages.append((result.url, result.html))
+            return result.url, budget
+    return None, budget
+
+
 def _gather_pages(
     url: str,
     session: requests.Session,
@@ -67,8 +117,10 @@ def _gather_pages(
     delay: float,
     respect_robots: bool,
     warnings: List[str],
-) -> Tuple[List[Tuple[str, str]], Optional[str]]:
-    """Fetch the homepage plus up to (max_pages - 1) likely contact pages."""
+) -> Tuple[List[Tuple[str, str]], Optional[str], Optional[str]]:
+    """Fetch the homepage plus, within an (max_pages - 1) budget, a contact
+    page and an "about us"/team page -- names almost never live on the
+    contact page itself, so it gets its own targeted fetch."""
     home = fetcher.fetch(url, session=session, timeout=timeout, respect_robots=respect_robots)
     if not home.ok:
         # Apex vs "www." is a common real-world split: many small sites only
@@ -81,41 +133,36 @@ def _gather_pages(
             home = alt_home
         else:
             warnings.append(f"no se pudo obtener la página principal ({url}): {home.error}")
-            return [], None
+            return [], None, None
 
     pages = [(home.url, home.html)]
-    contact_url: Optional[str] = None
     budget = max_pages - 1
     if budget <= 0:
-        return pages, contact_url
+        return pages, None, None
 
-    candidates = contact_page_finder.find_contact_links(home.url, home.html, limit=budget)
-    if candidates:
-        for candidate in candidates:
-            time.sleep(delay)
-            result = fetcher.fetch(candidate, session=session, timeout=timeout, respect_robots=respect_robots)
-            if result.ok:
-                pages.append((result.url, result.html))
-                contact_url = contact_url or result.url
-            else:
-                warnings.append(f"no se pudo obtener {candidate}: {result.error}")
-    else:
+    contact_candidates = contact_page_finder.find_contact_links(home.url, home.html, limit=2)
+    team_candidates = contact_page_finder.find_team_links(home.url, home.html, limit=1)
+
+    # Real links found on the homepage beat blind path guessing regardless of
+    # type: a site with no "Contacto" link but a real "Quiénes somos" link
+    # should get its team page fetched before we ever burn budget guessing
+    # /contacto paths that may not exist (confirmed on santeclinics.com,
+    # which has no contact page at all but does list its team).
+    contact_url, budget = _try_candidates(contact_candidates, session, timeout, delay, respect_robots, budget, pages, warnings)
+    team_url, budget = _try_candidates(team_candidates, session, timeout, delay, respect_robots, budget, pages, warnings)
+
+    if not contact_candidates:
         warnings.append("no se encontró un enlace de contacto en la página principal; probando rutas comunes")
-        for guess in contact_page_finder.guess_common_paths(home.url):
-            if budget <= 0:
-                break
-            time.sleep(delay)
-            result = fetcher.fetch(guess, session=session, timeout=timeout, respect_robots=respect_robots)
-            budget -= 1
-            if result.ok:
-                pages.append((result.url, result.html))
-                contact_url = result.url
-                break
+        contact_url, budget = _try_guesses(contact_page_finder.guess_common_paths, home.url, session, timeout, delay, respect_robots, budget, pages)
+    if not team_candidates:
+        team_url, budget = _try_guesses(contact_page_finder.guess_team_common_paths, home.url, session, timeout, delay, respect_robots, budget, pages)
 
     if contact_url is None:
         warnings.append("no se encontró una página de contacto dedicada; se usó solo la página principal")
+    if team_url is None:
+        warnings.append("no se encontró una página de equipo/sobre nosotros (los nombres solo pueden salir de las páginas ya visitadas)")
 
-    return pages, contact_url
+    return pages, contact_url, team_url
 
 
 def scrape(
@@ -132,7 +179,7 @@ def scrape(
     url = _normalize_url(url)
 
     with requests.Session() as session:
-        pages, contact_url = _gather_pages(url, session, max_pages, timeout, delay, respect_robots, warnings)
+        pages, contact_url, team_url = _gather_pages(url, session, max_pages, timeout, delay, respect_robots, warnings)
 
     if not pages:
         return ContactInfo(source_url=url, warnings=warnings)
@@ -181,7 +228,19 @@ def scrape(
         if formatted and formatted not in structured_phones:
             structured_phones.append(formatted)
     phones = structured_phones + [p for p in phones if p not in structured_phones]
-    names = structured["names"] + [n for n in names if n not in structured["names"]]
+
+    # Sites don't always keep their schema.org Person "name" tidy -- some
+    # dump the raw display string in there, honorific and decorative emoji
+    # included (e.g. "Dr. Ignacio Navarro 🇺🇸 🇪🇸"). Clean it the same way a
+    # human reading the page would, so it collapses with the regex-extracted
+    # "Ignacio Navarro" instead of appearing twice.
+    structured_names: List[str] = []
+    for raw in structured["names"]:
+        cleaned = names_extractor.clean_person_name(raw)
+        if cleaned and cleaned not in structured_names:
+            structured_names.append(cleaned)
+    names = structured_names + [n for n in names if n not in structured_names]
+
     hours_raw = structured["hours"] + [h for h in hours_raw if h not in structured["hours"]]
 
     address = structured["address"] if structured["address"]["raw"] else micro_address
@@ -212,6 +271,7 @@ def scrape(
     return ContactInfo(
         source_url=url,
         contact_page_url=contact_url,
+        team_page_url=team_url,
         names=names,
         phones=phones,
         hours=hours_extractor.best_hours_text(hours_raw),

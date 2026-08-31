@@ -25,7 +25,9 @@ from typing import List, Optional
 # Lowercase connectors ("del", "de la"...) are allowed between capitalized
 # words so compound surnames like "Martínez del Campo" aren't cut short.
 _CONNECTOR = r"(?:de(?:[ \t]+la|[ \t]+los|[ \t]+las)?|del)"
-_WORD = r"[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+"
+# Accepts "Ocampo" (Title Case) and "OCAMPO" (a common all-caps styling for
+# team/staff names) but not mixed-case noise like "OcAmPo".
+_WORD = r"[A-ZÁÉÍÓÚÑ](?:[A-ZÁÉÍÓÚÑ]+|[a-záéíóúñ]+)"
 _NAME = rf"{_WORD}(?:[ \t]+(?:{_CONNECTOR}[ \t]+)?{_WORD}){{1,3}}"
 
 # A capitalized phrase immediately followed by a legal-entity suffix is a
@@ -61,11 +63,33 @@ _LEGAL_SUFFIX_RE = re.compile(r"\b(s\.?a\.?s?\.?|s\.?l\.?|s\.?r\.?l\.?|ltda\.?|c
 
 def _clean(name: str) -> Optional[str]:
     name = name.strip()
+    if name.isupper():  # "ELOY OCAMPO" -> "Eloy Ocampo", for consistent output
+        name = name.title()
     if name.lower() in _STOPWORDS:
         return None
     if _LEGAL_SUFFIX_RE.search(name):
         return None
     return name
+
+
+_LEADING_HONORIFIC_RE = re.compile(r"^(?:Sr|Sra|Srta|Lic|Ing|Dr|Dra|Mtro|Mtra)\.?\s+", re.IGNORECASE)
+# Runs from the first letter through any mix of letters/spaces/apostrophes/
+# hyphens/periods, i.e. everything a name can plausibly contain -- anything
+# after that (emoji, flag icons, a trailing job title glued on) is dropped.
+_NAME_RUN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'.\- ]*")
+
+
+def clean_person_name(raw: str) -> Optional[str]:
+    """Tidy up a name that came from a site's own (not always careful)
+    structured data, e.g. schema.org Person "name": "Dr. Ignacio Navarro
+    🇺🇸 🇪🇸" -> "Ignacio Navarro". Regex-extracted names never need this --
+    they're built strictly from name-shaped characters to begin with."""
+    if not raw:
+        return None
+    value = _LEADING_HONORIFIC_RE.sub("", raw.strip())
+    match = _NAME_RUN_RE.match(value)
+    value = match.group(0).strip() if match else value.strip()
+    return _clean(value) if value else None
 
 
 def _regex_names(text: str) -> List[str]:

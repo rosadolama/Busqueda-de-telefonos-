@@ -12,7 +12,7 @@ HOME_HTML = """
  "openingHoursSpecification":[{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday"],"opens":"08:00","closes":"18:00"}]}
 </script>
 </head><body>
-<nav><a href="/">Inicio</a><a href="/contacto">Contáctenos</a></nav>
+<nav><a href="/">Inicio</a><a href="/contacto">Contáctenos</a><a href="/equipo">Nuestro Equipo</a></nav>
 <footer>Panaderia Central - Bogotá, Colombia</footer>
 </body></html>
 """
@@ -27,12 +27,24 @@ CONTACT_HTML = """
 </body></html>
 """
 
+# Real sites (santeclinics.com, clinicaslove.com) list staff only on their
+# "about us" page, never on the contact page itself -- this mirrors that.
+TEAM_HTML = """
+<html><body>
+<h1>Nuestro Equipo</h1>
+<p>Dr. Andrés Molina</p>
+<p>Panadero jefe, 20 años de experiencia.</p>
+</body></html>
+"""
+
 
 def _fake_fetch(url, session=None, timeout=15, respect_robots=True):
     if url.rstrip("/") == "https://panaderiacentral.com":
         return fetcher.FetchResult(url=url, status_code=200, html=HOME_HTML)
     if url == "https://panaderiacentral.com/contacto":
         return fetcher.FetchResult(url=url, status_code=200, html=CONTACT_HTML)
+    if url == "https://panaderiacentral.com/equipo":
+        return fetcher.FetchResult(url=url, status_code=200, html=TEAM_HTML)
     return fetcher.FetchResult(url=url, status_code=404, html=None, error="not found")
 
 
@@ -41,13 +53,40 @@ def test_full_pipeline_merges_structured_and_text_data():
         info = scrape("https://panaderiacentral.com", delay=0)
 
     assert info.contact_page_url == "https://panaderiacentral.com/contacto"
-    assert info.names == ["Rosa Elena Martínez del Campo"]
+    assert info.team_page_url == "https://panaderiacentral.com/equipo"
+    assert info.names == ["Rosa Elena Martínez del Campo", "Andrés Molina"]
     assert info.phones == ["+57 300 1112222"]  # JSON-LD + tel: link + text collapse into one
     assert info.hours == "Lunes, Martes, Miércoles, Jueves, Viernes: 08:00–18:00"
     assert "Lunes a Viernes de 8:00 a 18:00" in info.hours_raw
     assert info.city == "Bogotá"
     assert info.country == "CO"
     assert info.warnings == []
+
+
+def test_team_page_found_even_when_site_has_no_contact_page():
+    # Real case (santeclinics.com): no "Contacto" link or page exists at
+    # all, but there IS a real "Sobre Nosotros" link with the team roster.
+    # Guessing /contacto, /contact-us, etc. must not burn the whole page
+    # budget before the known team link ever gets a turn.
+    home_html = """
+    <html><body>
+    <nav><a href="/">Inicio</a><a href="/sobre-nosotros">Sobre Nosotros</a></nav>
+    </body></html>
+    """
+
+    def fetch_no_contact_page(url, session=None, timeout=15, respect_robots=True):
+        if url.rstrip("/") == "https://clinicasin.example":
+            return fetcher.FetchResult(url=url, status_code=200, html=home_html)
+        if url == "https://clinicasin.example/sobre-nosotros":
+            return fetcher.FetchResult(url=url, status_code=200, html=TEAM_HTML)
+        return fetcher.FetchResult(url=url, status_code=404, html=None, error="not found")
+
+    with patch("contact_scraper.scraper.fetcher.fetch", side_effect=fetch_no_contact_page):
+        info = scrape("https://clinicasin.example", delay=0)
+
+    assert info.contact_page_url is None
+    assert info.team_page_url == "https://clinicasin.example/sobre-nosotros"
+    assert info.names == ["Andrés Molina"]
 
 
 def test_falls_back_to_www_variant_when_bare_domain_fails():

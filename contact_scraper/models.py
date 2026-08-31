@@ -11,6 +11,7 @@ class ContactInfo:
 
     source_url: str
     contact_page_url: Optional[str] = None
+    team_page_url: Optional[str] = None
     names: List[str] = field(default_factory=list)
     phones: List[str] = field(default_factory=list)
     hours: Optional[str] = None
@@ -24,6 +25,7 @@ class ContactInfo:
         return {
             "source_url": self.source_url,
             "contact_page_url": self.contact_page_url,
+            "team_page_url": self.team_page_url,
             "names": self.names,
             "phones": self.phones,
             "hours": self.hours,

@@ -10,6 +10,7 @@ def _fake_info(url):
     return ContactInfo(
         source_url=url,
         contact_page_url=url.rstrip("/") + "/contacto",
+        team_page_url=url.rstrip("/") + "/equipo",
         names=["Juan Pérez"],
         phones=["+57 300 1112222"],
         hours="Lunes a Viernes: 08:00-18:00",
@@ -53,6 +54,7 @@ def test_csv_output(tmp_path):
     assert rows[0]["names"] == "Juan Pérez"
     assert rows[0]["phones"] == "+57 300 1112222"
     assert rows[0]["city"] == "Bogotá"
+    assert rows[0]["team_page_url"] == "https://a.com/equipo"
 
 
 def test_input_file_is_merged_with_positional_urls(tmp_path):

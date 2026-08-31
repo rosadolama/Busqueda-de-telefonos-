@@ -17,7 +17,7 @@ from contact_scraper.models import ContactInfo
 from contact_scraper.scraper import DEFAULT_DELAY, DEFAULT_MAX_PAGES, DEFAULT_TIMEOUT, scrape
 
 CSV_FIELDS = [
-    "source_url", "contact_page_url", "names", "phones",
+    "source_url", "contact_page_url", "team_page_url", "names", "phones",
     "hours", "city", "country", "address_raw", "warnings",
 ]
 
@@ -35,6 +35,7 @@ def _read_url_file(path: str) -> List[str]:
 def _print_human(info: ContactInfo, out: TextIO) -> None:
     print(f"URL:              {info.source_url}", file=out)
     print(f"Página de contacto: {info.contact_page_url or '(no encontrada; se usó la página principal)'}", file=out)
+    print(f"Página de equipo: {info.team_page_url or '(no encontrada)'}", file=out)
     print(f"Nombres:          {', '.join(info.names) or '(ninguno encontrado)'}", file=out)
     print(f"Teléfonos:        {', '.join(info.phones) or '(ninguno encontrado)'}", file=out)
     print(f"Horario:          {info.hours or '(no encontrado)'}", file=out)
@@ -59,6 +60,7 @@ def _write_csv(results: List[ContactInfo], path: str) -> None:
                 {
                     "source_url": row["source_url"],
                     "contact_page_url": row["contact_page_url"] or "",
+                    "team_page_url": row["team_page_url"] or "",
                     "names": "; ".join(row["names"]),
                     "phones": "; ".join(row["phones"]),
                     "hours": row["hours"] or "",
