@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from bs4 import BeautifulSoup
 
@@ -129,18 +129,38 @@ def _openinghours_string_to_text(value: str) -> str:
     return f"{start_name}: {opens}–{closes}"
 
 
-def _person_name(node: Dict[str, Any]) -> Optional[str]:
-    if _PERSON_TYPE in _type_names(node):
-        name = node.get("name")
-        if isinstance(name, str) and name.strip():
-            return name.strip()
-    return None
+def _person_name_and_role(node: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """schema.org Person.jobTitle is the clean, structured "cargo" -- trust it
+    outright when the site bothers to publish it."""
+    if _PERSON_TYPE not in _type_names(node):
+        return None, None
+    name = node.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None, None
+    role = node.get("jobTitle")
+    role = role.strip() if isinstance(role, str) and role.strip() else None
+    return name.strip(), role
+
+
+def _add_person(bucket: List[Tuple[str, Optional[str]]], name: Optional[str], role: Optional[str] = None) -> None:
+    if not name:
+        return
+    for i, (existing_name, existing_role) in enumerate(bucket):
+        if existing_name == name:
+            if role and not existing_role:
+                bucket[i] = (name, role)  # a later, richer mention fills in the role
+            return
+    bucket.append((name, role))
 
 
 def summarize_structured_data(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Pull phones/address/hours/names out of parsed JSON-LD nodes."""
+    """Pull phones/address/hours/names out of parsed JSON-LD nodes.
+
+    "names" is a list of (name, role) tuples -- role is the schema.org
+    jobTitle when the node had one, else None.
+    """
     phones: List[str] = []
-    names: List[str] = []
+    names: List[Tuple[str, Optional[str]]] = []
     hours: List[str] = []
     address: Dict[str, Optional[str]] = {"locality": None, "region": None, "country": None, "raw": None}
 
@@ -171,9 +191,10 @@ def summarize_structured_data(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
                     continue
                 for person in (val if isinstance(val, list) else [val]):
                     if isinstance(person, dict):
-                        name = _person_name(person) or (person.get("name") if isinstance(person.get("name"), str) else None)
-                        if name:
-                            names.append(name)
+                        name, role = _person_name_and_role(person)
+                        if not name and isinstance(person.get("name"), str):
+                            name = person["name"].strip() or None
+                        _add_person(names, name, role)
 
             cp = node.get("contactPoint")
             if cp:
@@ -184,15 +205,14 @@ def summarize_structured_data(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
                             phones.append(cp_tel.strip())
                         cp_name = point.get("name")
                         if isinstance(cp_name, str) and cp_name.strip():
-                            names.append(cp_name.strip())
+                            _add_person(names, cp_name.strip())
 
-        direct_name = _person_name(node)
-        if direct_name:
-            names.append(direct_name)
+        direct_name, direct_role = _person_name_and_role(node)
+        _add_person(names, direct_name, direct_role)
 
     return {
         "phones": list(dict.fromkeys(phones)),
-        "names": list(dict.fromkeys(names)),
+        "names": names,
         "hours": list(dict.fromkeys(hours)),
         "address": address,
     }

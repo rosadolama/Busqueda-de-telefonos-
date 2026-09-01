@@ -1,6 +1,6 @@
 import csv
 
-from contact_scraper.models import ContactInfo
+from contact_scraper.models import ContactInfo, Person
 from contact_scraper.results_io import result_to_csv_row, write_csv
 
 
@@ -9,7 +9,7 @@ def _sample_info() -> ContactInfo:
         source_url="https://a.com",
         contact_page_url="https://a.com/contacto",
         team_page_url="https://a.com/equipo",
-        names=["Juan Pérez", "María Gómez"],
+        names=[Person(name="Juan Pérez", role="Gerente"), Person(name="María Gómez")],
         phones=["+57 300 1112222"],
         hours="Lunes a Viernes: 08:00-18:00",
         hours_raw=["Lunes a Viernes: 08:00-18:00"],
@@ -22,7 +22,7 @@ def _sample_info() -> ContactInfo:
 
 def test_result_to_csv_row_joins_lists():
     row = result_to_csv_row(_sample_info())
-    assert row["names"] == "Juan Pérez; María Gómez"
+    assert row["names"] == "Juan Pérez (Gerente); María Gómez"
     assert row["phones"] == "+57 300 1112222"
     assert row["warnings"] == "no se encontró un horario de atención"
     assert row["city"] == "Bogotá"
@@ -47,5 +47,5 @@ def test_write_csv_round_trips(tmp_path):
 
     assert len(rows) == 1
     assert rows[0]["source_url"] == "https://a.com"
-    assert rows[0]["names"] == "Juan Pérez; María Gómez"
+    assert rows[0]["names"] == "Juan Pérez (Gerente); María Gómez"
     assert rows[0]["team_page_url"] == "https://a.com/equipo"

@@ -2,7 +2,7 @@
 
 Dada una URL, este bot localiza la página de contacto de un sitio web y extrae:
 
-- **Nombres de personas** (cuando la página los menciona explícitamente)
+- **Nombres de personas**, con su **cargo** cuando está disponible (cuando la página los menciona explícitamente)
 - **Números de teléfono** (validados y formateados, no cualquier secuencia de dígitos)
 - **Horario de atención**
 - **Ciudad probable** donde está ubicado el negocio
@@ -36,7 +36,7 @@ python -m contact_scraper https://ejemplo.com
 URL:              https://ejemplo.com
 Página de contacto: https://ejemplo.com/contacto
 Página de equipo: https://ejemplo.com/nosotros
-Nombres:          Rosa Elena Martínez del Campo
+Nombres:          Rosa Elena Martínez del Campo, Javier Llorente (CEO Fundador)
 Teléfonos:        +57 300 1112222
 Horario:          Lunes a Viernes: 08:00–18:00
 Ciudad probable:  Bogotá
@@ -54,7 +54,8 @@ python -m contact_scraper --input urls.txt --output resultados.csv
 `urls.txt` lleva una URL por línea (las líneas vacías o que empiezan con `#`
 se ignoran). El CSV resultante tiene las columnas: `source_url,
 contact_page_url, team_page_url, names, phones, hours, city, country,
-address_raw, warnings` (las listas van separadas por `; `).
+address_raw, warnings` (las listas van separadas por `; `; en `names`, el
+cargo va entre paréntesis: `Javier Llorente (CEO Fundador); María Gómez`).
 
 También puedes combinar URLs directas con `--input`, y usar `--json` en vez
 de `--output` para imprimir un arreglo JSON por stdout.
@@ -157,10 +158,13 @@ dinámica, y PyInstaller no los detecta solo.)
    - `city.py` compara el texto contra un gazetteer de ciudades reales
      (`geonamescache`, sin llamadas de red) y prioriza por coincidencia de
      país y población.
-   - `names.py` solo reporta un nombre cuando hay una señal explícita
-     ("Lic.", "Sr.", "Contacto:", "Atiende:", etc., en mayúscula/minúscula
-     normal o TODO EN MAYÚSCULAS), nunca adivina a partir de cualquier
-     frase capitalizada sin ese contexto.
+   - `names.py` reporta un nombre cuando hay una señal explícita ("Lic.",
+     "Sr.", "Contacto:", "Atiende:", en mayúscula/minúscula normal o TODO EN
+     MAYÚSCULAS), o cuando aparece solo en su propia línea seguido de una
+     línea que parece un cargo ("Javier Llorente" / "CEO Fundador") -- ese
+     emparejamiento es la señal, un nombre suelto sin nada después se
+     ignora igual que antes. También lee el `jobTitle` de schema.org cuando
+     el sitio lo publica.
 5. **`scraper.py`** combina todo lo anterior con datos estructurados como
    fuente prioritaria, y reintenta con/sin "www." si el dominio principal
    falla (certificados o DNS mal configurados en uno de los dos son comunes
@@ -172,15 +176,21 @@ dinámica, y PyInstaller no los detecta solo.)
 
 ## Limitaciones (por diseño)
 
-- **Nombres**: solo se reportan cuando hay una señal explícita (honorífico
-  o etiqueta tipo "Contacto:") justo antes del nombre — funciona bien para
-  equipos médicos/profesionales (que casi siempre usan "Dr."/"Dra."), pero
-  un nombre suelto en una tarjeta de equipo sin título ni etiqueta (solo
-  seguido de un cargo como "CEO" o "Trafficker Digital") no se captura; es
-  una decisión deliberada para no arriesgar falsos positivos con títulos de
-  sección o nombres de tratamientos. No se usa NLP pesado por defecto;
-  `--use-spacy` es opcional para mejorar el recall si ya tienes `spacy`
-  instalado.
+- **Nombres y cargos**: un nombre se reporta con honorífico/etiqueta
+  ("Dr.", "Contacto:") o, sin ninguno de los dos, cuando está solo en su
+  línea seguido de una línea que parece un cargo -- esa segunda señal es
+  la que se acepta con menos certeza, y el usuario de esta herramienta
+  decidió activarla a pesar de eso. El texto de `<nav>` (menús de
+  tratamientos/productos) se excluye de este análisis porque era la fuente
+  más común de ruido, pero no todo: carruseles de promociones u ofertas en
+  la portada, con la misma forma "Título corto" + "botón corto" debajo,
+  todavía pueden colarse (medido en sitios reales: de ~0 falsos positivos
+  en sitios simples a un puñado en sitios con muchas promociones/tratamientos
+  en la misma página). Si ves un patrón repetido en tus sitios, dilo y se
+  agrega a la lista de exclusiones (`_ROLE_WORDS`, `_COMPANY_WORDS`,
+  `_HEADING_WORDS`, `_CTA_VERB_WORDS`, `_ROLE_BLOCKLIST` en `names.py`). No
+  se usa NLP pesado por defecto; `--use-spacy` es opcional para mejorar el
+  recall si ya tienes `spacy` instalado.
 - **Ciudad**: es una inferencia ("ciudad probable"), no un hecho verificado.
   Se prioriza la ciudad que el sitio declara explícitamente
   (`addressLocality`); en texto libre puede haber ambigüedad cuando se

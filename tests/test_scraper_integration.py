@@ -54,7 +54,10 @@ def test_full_pipeline_merges_structured_and_text_data():
 
     assert info.contact_page_url == "https://panaderiacentral.com/contacto"
     assert info.team_page_url == "https://panaderiacentral.com/equipo"
-    assert info.names == ["Rosa Elena Martínez del Campo", "Andrés Molina"]
+    assert [(p.name, p.role) for p in info.names] == [
+        ("Rosa Elena Martínez del Campo", None),  # next line is a CTA sentence, not a role
+        ("Andrés Molina", "Panadero jefe, 20 años de experiencia."),
+    ]
     assert info.phones == ["+57 300 1112222"]  # JSON-LD + tel: link + text collapse into one
     assert info.hours == "Lunes, Martes, Miércoles, Jueves, Viernes: 08:00–18:00"
     assert "Lunes a Viernes de 8:00 a 18:00" in info.hours_raw
@@ -86,7 +89,7 @@ def test_team_page_found_even_when_site_has_no_contact_page():
 
     assert info.contact_page_url is None
     assert info.team_page_url == "https://clinicasin.example/sobre-nosotros"
-    assert info.names == ["Andrés Molina"]
+    assert [(p.name, p.role) for p in info.names] == [("Andrés Molina", "Panadero jefe, 20 años de experiencia.")]
 
 
 def test_falls_back_to_www_variant_when_bare_domain_fails():

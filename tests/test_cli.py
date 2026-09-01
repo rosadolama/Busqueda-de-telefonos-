@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch
 
 from contact_scraper.cli import main
-from contact_scraper.models import ContactInfo
+from contact_scraper.models import ContactInfo, Person
 
 
 def _fake_info(url):
@@ -11,7 +11,7 @@ def _fake_info(url):
         source_url=url,
         contact_page_url=url.rstrip("/") + "/contacto",
         team_page_url=url.rstrip("/") + "/equipo",
-        names=["Juan Pérez"],
+        names=[Person(name="Juan Pérez")],
         phones=["+57 300 1112222"],
         hours="Lunes a Viernes: 08:00-18:00",
         hours_raw=["Lunes a Viernes: 08:00-18:00"],
@@ -30,6 +30,7 @@ def test_json_output_multiple_urls(capsys):
     assert len(out) == 2
     assert out[0]["source_url"] == "https://a.com"
     assert out[0]["phones"] == ["+57 300 1112222"]
+    assert out[0]["names"] == [{"name": "Juan Pérez", "role": None}]
 
 
 def test_human_output_single_url(capsys):

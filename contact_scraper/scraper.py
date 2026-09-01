@@ -20,7 +20,7 @@ from contact_scraper.extractors import hours as hours_extractor
 from contact_scraper.extractors import names as names_extractor
 from contact_scraper.extractors import phones as phones_extractor
 from contact_scraper.geo_hints import guess_country_from_url
-from contact_scraper.models import ContactInfo
+from contact_scraper.models import ContactInfo, Person
 
 DEFAULT_MAX_PAGES = 4
 DEFAULT_TIMEOUT = 15
@@ -46,9 +46,17 @@ def _toggle_www(url: str) -> str:
     return parsed._replace(netloc=host).geturl()
 
 
-def _visible_text(html: str) -> str:
+def _visible_text(html: str, *, strip_nav: bool = False) -> str:
     soup = BeautifulSoup(html, "lxml")
-    for tag in soup(["script", "style", "noscript", "svg"]):
+    tags = ["script", "style", "noscript", "svg"]
+    if strip_nav:
+        # <nav> is where a site's treatment/product menu or footer link
+        # list lives -- exactly the kind of short, name-shaped phrases
+        # ("Aumento de Labios", "Tarjeta Regalo") that pollute name
+        # detection. Phones/hours/city still use the un-stripped text,
+        # since a nav or footer can legitimately carry contact info.
+        tags.append("nav")
+    for tag in soup(tags):
         tag.decompose()
     return soup.get_text("\n", strip=True)
 
@@ -57,6 +65,23 @@ def _dedup_extend(target: List[str], items: List[str]) -> None:
     for item in items:
         if item and item not in target:
             target.append(item)
+
+
+def _merge_people(base: List[Person], additions: List[Person]) -> List[Person]:
+    """Merge by name (order preserved): a later mention with a role fills in
+    an earlier bare mention of the same person, instead of the two coexisting
+    as separate entries or the role getting silently dropped."""
+    result = list(base)
+    index_by_name = {p.name: i for i, p in enumerate(result)}
+    for person in additions:
+        if person.name in index_by_name:
+            i = index_by_name[person.name]
+            if person.role and not result[i].role:
+                result[i] = Person(name=person.name, role=person.role)
+        else:
+            index_by_name[person.name] = len(result)
+            result.append(person)
+    return result
 
 
 def _try_candidates(
@@ -190,7 +215,7 @@ def scrape(
     meta_city: Optional[str] = None
 
     phones: List[str] = []
-    names: List[str] = []
+    names: List[Person] = []
     hours_raw: List[str] = []
     address_snippet: Optional[str] = None
     combined_text_parts: List[str] = []
@@ -210,7 +235,8 @@ def scrape(
         combined_text_parts.append(text)
 
         _dedup_extend(phones, phones_extractor.extract_phones(text, html=html, source_url=page_url))
-        _dedup_extend(names, names_extractor.extract_names(text, use_spacy=use_spacy))
+        name_text = _visible_text(html, strip_nav=True)
+        names = _merge_people(names, names_extractor.extract_names(name_text, use_spacy=use_spacy))
         _dedup_extend(hours_raw, hours_extractor.extract_hours(text))
         if address_snippet is None:
             address_snippet = city_extractor.find_address_snippet(text)
@@ -233,13 +259,14 @@ def scrape(
     # dump the raw display string in there, honorific and decorative emoji
     # included (e.g. "Dr. Ignacio Navarro 🇺🇸 🇪🇸"). Clean it the same way a
     # human reading the page would, so it collapses with the regex-extracted
-    # "Ignacio Navarro" instead of appearing twice.
-    structured_names: List[str] = []
-    for raw in structured["names"]:
-        cleaned = names_extractor.clean_person_name(raw)
-        if cleaned and cleaned not in structured_names:
-            structured_names.append(cleaned)
-    names = structured_names + [n for n in names if n not in structured_names]
+    # "Ignacio Navarro" instead of appearing twice. jobTitle (the role) is
+    # already clean and passes through as-is.
+    structured_people: List[Person] = []
+    for raw_name, role in structured["names"]:
+        cleaned = names_extractor.clean_person_name(raw_name)
+        if cleaned:
+            structured_people = _merge_people(structured_people, [Person(name=cleaned, role=role)])
+    names = _merge_people(structured_people, names)
 
     hours_raw = structured["hours"] + [h for h in hours_raw if h not in structured["hours"]]
 

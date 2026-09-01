@@ -46,10 +46,38 @@ def test_extract_and_summarize_json_ld():
 
     summary = summarize_structured_data(nodes)
     assert summary["phones"] == ["+57 300 111 2222"]
-    assert summary["names"] == ["Rosa Martínez"]
+    assert summary["names"] == [("Rosa Martínez", None)]
     assert summary["address"]["locality"] == "Bogotá"
     assert summary["address"]["country"] == "CO"
     assert summary["hours"] == ["Lunes, Martes, Miércoles, Jueves, Viernes: 08:00–18:00"]
+
+
+def test_person_jobtitle_is_read_as_role():
+    html = """
+    <script type="application/ld+json">
+    {"@type": "LocalBusiness", "employee": [
+        {"@type": "Person", "name": "Wanda Medina", "jobTitle": "Directora Médica"}
+    ]}
+    </script>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    summary = summarize_structured_data(extract_json_ld(soup))
+    assert summary["names"] == [("Wanda Medina", "Directora Médica")]
+
+
+def test_role_from_a_later_mention_fills_in_an_earlier_bare_name():
+    # Same person shows up twice: once via contactPoint (no role), once as
+    # an employee with a jobTitle. The richer mention should win.
+    html = """
+    <script type="application/ld+json">
+    {"@type": "LocalBusiness",
+     "contactPoint": {"@type": "ContactPoint", "name": "Wanda Medina", "telephone": "+34 1 2345678"},
+     "employee": [{"@type": "Person", "name": "Wanda Medina", "jobTitle": "Directora Médica"}]}
+    </script>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    summary = summarize_structured_data(extract_json_ld(soup))
+    assert summary["names"] == [("Wanda Medina", "Directora Médica")]
 
 
 def test_address_country_as_nested_object_not_raw_string():

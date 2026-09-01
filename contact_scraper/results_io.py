@@ -18,7 +18,7 @@ def result_to_csv_row(info: ContactInfo) -> dict:
         "source_url": row["source_url"],
         "contact_page_url": row["contact_page_url"] or "",
         "team_page_url": row["team_page_url"] or "",
-        "names": "; ".join(row["names"]),
+        "names": "; ".join(p.display() for p in info.names),
         "phones": "; ".join(row["phones"]),
         "hours": row["hours"] or "",
         "city": row["city"] or "",
