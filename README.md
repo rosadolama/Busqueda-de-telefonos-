@@ -217,6 +217,23 @@ mano. Aun así:
   especialmente si vas a usar los datos para contactar personas.
 - No está pensado para armar listas de envío masivo no solicitado (spam).
 
+## Otras herramientas en este repositorio
+
+Además del bot de extracción de contacto, el repositorio incluye dos
+utilidades independientes para prospección de empresas:
+
+- **`aove_scraper/`** — scraper de directorios de empresas por nicho
+  (actualmente AOVE/aceite de oliva y residencias de mayores), con
+  verificación de webs, deduplicación y puntuación de encaje (`Fit_ICP`)
+  incorporadas. Cada nicho vive en `sources/<nicho>/` con un parser por
+  fuente; para correrlo: `cd aove_scraper && python main.py --nicho aove`
+  (el CSV combinado queda en `aove_scraper/output/`).
+- **`dedup_contactos.py`** — une varios Excels/CSV de contactos sueltos
+  (de distintas fuentes o exportaciones) en un único Excel, fusionando
+  los contactos repetidos entre archivos por email, dominio de web o
+  nombre de empresa: `python dedup_contactos.py contactos1.xlsx
+  contactos2.xlsx -o unificado.xlsx`.
+
 ## Pruebas
 
 ```bash
