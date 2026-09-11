@@ -128,7 +128,15 @@ def extraer(entidad: str, sector: str, token: str, bloque: int, max_registros: i
         except ValueError:
             print(f"Bloque {ini}-{fin}: respuesta no es JSON válido (posible error del servicio); se detiene.", file=sys.stderr)
             break
-        if not datos:
+        # Cuando el rango pedido excede el total real de resultados, DENUE
+        # no devuelve [] -- devuelve un STRING con un mensaje ("No hay
+        # información...", HTTP 200). Un string no vacío es truthy en
+        # Python, así que "if not datos" nunca cortaba, y extend(str) metía
+        # cada CARÁCTER del mensaje como si fuera un registro (confirmado
+        # contra la API real: así se originaban los "19 registros" fantasma
+        # y el crash de pd.DataFrame). isinstance() es la señal correcta de
+        # "no hay más resultados", no la vacuidad.
+        if not isinstance(datos, list) or not datos:
             break
         registros.extend(datos)
         print(f"{ini}-{fin}: {len(datos)} registros")
