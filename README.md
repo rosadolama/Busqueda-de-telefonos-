@@ -233,6 +233,18 @@ utilidades independientes para prospección de empresas:
   los contactos repetidos entre archivos por email, dominio de web o
   nombre de empresa: `python dedup_contactos.py contactos1.xlsx
   contactos2.xlsx -o unificado.xlsx`.
+- **`denue_extractor.py`** — descarga establecimientos del DENUE (INEGI,
+  México) por entidad y actividad económica (SCIAN), paginando en bloques
+  y exportando a Excel/CSV. Requiere un token gratuito (uno por usuario) de
+  https://www.inegi.org.mx/app/api/denue/v1/tokenVerify.aspx:
+  `export DENUE_TOKEN=tu-token && python denue_extractor.py --entidad 09 --sector 43`
+  (09 = CDMX; el código de actividad puede ir de 2 a 6 dígitos, de sector a
+  clase). Antes de un pedido grande, usa el "Cuantificar" del sitio del
+  DENUE para saber cuántos registros hay en total y ajustar
+  `--max-registros`. **Aviso real:** la API no rechaza un token inválido —
+  responde HTTP 200 igual, solo que con menos registros de los que debería
+  haber; si el conteo final te parece bajo, sospecha del token antes que
+  del código.
 
 ## Pruebas
 

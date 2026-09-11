@@ -4,3 +4,4 @@ lxml>=5.0
 phonenumbers>=8.13
 geonamescache>=2.3
 openpyxl>=3.1
+pandas>=2.0
