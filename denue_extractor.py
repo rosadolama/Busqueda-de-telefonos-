@@ -54,7 +54,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--espera", type=float, default=1.0, help="Pausa en segundos entre bloques (default 1.0).")
     parser.add_argument("--token", default=None, help="Token DENUE. Si no se indica, se lee de la variable de entorno DENUE_TOKEN.")
     parser.add_argument("-o", "--output", default=None, help="Archivo de salida (.xlsx o .csv). Por defecto: denue_<entidad>_sector<sector>.xlsx")
+    parser.add_argument("--sin-dedup", action="store_true", help="No agrupar sucursales por razón social; exportar una fila por establecimiento tal cual llega del DENUE.")
     return parser
+
+
+def deduplicar_por_razon_social(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrupa establecimientos por razón social (o Nombre si no hay razón
+    social) en una sola fila por empresa, combinando el mejor dato
+    disponible de cada columna entre sus sucursales.
+
+    El DENUE reporta campos sin dato como string vacío "", no como NaN.
+    agg('first') solo salta NaN, no "" -- si no se normaliza antes, se
+    queda con la primera sucursal tal cual (con o sin contacto) en vez de
+    combinar el correo de una sucursal con el teléfono de otra. Por eso el
+    replace() es el paso que hace el resto del dedup funcionar, no un
+    detalle cosmético."""
+    df = df.replace("", pd.NA)
+    razon_norm = df["Razon_social"].fillna(df["Nombre"]).str.strip().str.upper()
+    df = df.assign(razon_norm=razon_norm)
+    agg = {c: "first" for c in df.columns if c not in ("razon_norm", "CLEE")}
+    agg["CLEE"] = "count"
+    df_dedup = (
+        df.groupby("razon_norm", as_index=False)
+        .agg(agg)
+        .rename(columns={"CLEE": "num_sucursales"})
+        .drop(columns=["razon_norm"])
+    )
+    return df_dedup.fillna("")
 
 
 def _get_con_reintentos(session: requests.Session, url: str) -> requests.Response | None:
@@ -123,11 +149,18 @@ def main():
         sys.exit(1)
 
     df = pd.DataFrame(registros)
+    total_crudo = len(df)
+    if not args.sin_dedup:
+        df = deduplicar_por_razon_social(df)
+
     if output.lower().endswith(".csv"):
         df.to_csv(output, index=False)
     else:
         df.to_excel(output, index=False)
-    print(f"\nTotal: {len(df)} registros -> {output}")
+
+    if not args.sin_dedup:
+        print(f"\nEstablecimientos crudos: {total_crudo} -> tras agrupar por razón social: {len(df)}")
+    print(f"Total filas exportadas: {len(df)} -> {output}")
 
 
 if __name__ == "__main__":
