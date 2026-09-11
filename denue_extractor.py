@@ -20,9 +20,13 @@ Uso:
   # o sin variable de entorno:
   python denue_extractor.py --entidad 09 --sector 43 --token tu-token-aqui
 
-`--entidad` es la clave de entidad INEGI (2 dígitos, p.ej. 09 = CDMX).
-`--sector` es el código de actividad SCIAN (2 a 6 dígitos: sector,
-subsector, rama o clase — a mayor longitud, más específico).
+`--entidad` es la clave de entidad INEGI (2 dígitos, p.ej. 09 = CDMX), o
+`0` para las 32 entidades (BuscarAreaAct no tiene un valor "nacional": con
+`0` devuelve vacío, así que el modo nacional en realidad hace 32 llamadas
+por separado y las junta -- verificado contra la API real, no es un
+supuesto). `--sector` es el código de actividad SCIAN (2 a 6 dígitos:
+sector, subsector, rama o clase — a mayor longitud, más específico).
+En modo nacional, `--max-registros` es el tope POR ENTIDAD, no el total.
 """
 from __future__ import annotations
 
@@ -41,16 +45,17 @@ URL_TEMPLATE = (
 
 REINTENTOS = 3
 ESPERA_REINTENTO = 5  # segundos, se duplica en cada reintento
+ENTIDADES_INEGI = [f"{i:02d}" for i in range(1, 33)]
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Extractor de listas de empresas del DENUE (INEGI) por entidad y actividad económica.",
     )
-    parser.add_argument("--entidad", required=True, help="Clave de entidad INEGI, 2 dígitos (p.ej. 09 = CDMX).")
+    parser.add_argument("--entidad", required=True, help="Clave de entidad INEGI, 2 dígitos (p.ej. 09 = CDMX), o 0 para las 32 entidades (nacional).")
     parser.add_argument("--sector", required=True, help="Código de actividad SCIAN (2 a 6 dígitos).")
     parser.add_argument("--bloque", type=int, default=100, help="Registros por llamada a la API (default 100; si da error 500/timeout, bajar a 50).")
-    parser.add_argument("--max-registros", type=int, default=2000, help="Tope de registros a pedir (default 2000).")
+    parser.add_argument("--max-registros", type=int, default=2000, help="Tope de registros a pedir (default 2000). En modo nacional (--entidad 0), es el tope POR ENTIDAD.")
     parser.add_argument("--espera", type=float, default=1.0, help="Pausa en segundos entre bloques (default 1.0).")
     parser.add_argument("--token", default=None, help="Token DENUE. Si no se indica, se lee de la variable de entorno DENUE_TOKEN.")
     parser.add_argument("-o", "--output", default=None, help="Archivo de salida (.xlsx o .csv). Por defecto: denue_<entidad>_sector<sector>.xlsx")
@@ -133,6 +138,19 @@ def extraer(entidad: str, sector: str, token: str, bloque: int, max_registros: i
     return registros
 
 
+def extraer_nacional(sector: str, token: str, bloque: int, max_por_entidad: int, espera: float) -> list[dict]:
+    """BuscarAreaAct no acepta una clave 'nacional' -- con entidad 0
+    responde vacío (confirmado contra la API real). Así que 'nacional' es
+    32 pedidos separados, uno por entidad, concatenados."""
+    todos: list[dict] = []
+    for entidad in ENTIDADES_INEGI:
+        print(f"=== Entidad {entidad} ===")
+        registros = extraer(entidad, sector, token, bloque, max_por_entidad, espera)
+        print(f"  entidad {entidad}: {len(registros)} registros")
+        todos.extend(registros)
+    return todos
+
+
 def main():
     args = build_arg_parser().parse_args()
     token = args.token or os.environ.get("DENUE_TOKEN")
@@ -141,9 +159,13 @@ def main():
         print("Se obtiene gratis en: https://www.inegi.org.mx/app/api/denue/v1/tokenVerify.aspx", file=sys.stderr)
         sys.exit(1)
 
-    output = args.output or f"denue_{args.entidad}_sector{args.sector}.xlsx"
+    nacional = args.entidad in ("0", "00")
+    output = args.output or f"denue_{'nacional' if nacional else args.entidad}_sector{args.sector}.xlsx"
 
-    registros = extraer(args.entidad, args.sector, token, args.bloque, args.max_registros, args.espera)
+    if nacional:
+        registros = extraer_nacional(args.sector, token, args.bloque, args.max_registros, args.espera)
+    else:
+        registros = extraer(args.entidad, args.sector, token, args.bloque, args.max_registros, args.espera)
     if not registros:
         print("No se obtuvo ningún registro.", file=sys.stderr)
         sys.exit(1)
